@@ -2,7 +2,7 @@
 
 **A local AI assistant for the work between meetings.** Give Workhorse a spreadsheet, a set of handover notes or a project folder. It can review the material, flag what needs your attention and produce a file you can use. Start a task, keep working in another app, and come back to the result and a record of how it got there.
 
-[Run it on Windows](#run-it-on-windows) · [Try a sales review](#try-a-sales-review) · [Architecture](docs/architecture.md) · [Permissions](SECURITY.md)
+[Run it on Windows](#run-it-on-windows) · [Try a sales review](#try-a-sales-review) · [How it works](#under-the-hood) · [Permissions](SECURITY.md)
 
 [![Workhorse home screen with project and task navigation, shortcuts to draft or review work, a task composer, and a panel for files and changes.](docs/workhorse-home.png)](docs/workhorse-home.png)
 
@@ -54,6 +54,23 @@ Inference, conversations and files stay on your machine by default. If you enabl
 
 Ollama chooses a tool. The [runtime](workhorse/runtime.py) checks its arguments, the workspace permissions and any required approval before it acts. The result goes back to the model so it can correct an error or continue the task. SQLite keeps the conversation and activity record. File tools are limited to an approved folder; an approved native command runs with your operating-system permissions.
 
+```mermaid
+flowchart TD
+    UI["Local web interface"] --> R["Python agent runtime"]
+    R -->|task and observations| M["Ollama"]
+    M -->|reply or tool request| R
+    R --> G["Schema, workspace and approval checks"]
+    G --> T["Files, terminal, browser or research"]
+    T -->|observed result| R
+    R --> S["SQLite history and evidence"]
+```
+
 - [Architecture](docs/architecture.md) — follow a task from the browser through the agent loop and back.
 - [Tests and verification](docs/testing.md) — run the test suite, including a [browser scenario](tests/test_development.py) that reproduces a broken button, edits the code and verifies the fix.
 - [Security model](SECURITY.md) — understand file access, command approvals and the limits of a single-user local installation.
+
+### The loop in action
+
+![A click returns Broken; after editing app.js and reloading, the same click returns Hello.](docs/greeting-test.svg)
+
+In the [Greet button integration test](tests/test_development.py), the first click returns `Broken`. Workhorse edits the handler, reloads the page and repeats the same click in Chromium. The test passes when the page returns `Hello`. The model decisions are scripted; the edit and browser checks run against a real local page.
