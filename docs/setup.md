@@ -1,6 +1,6 @@
 # Running Workhorse
 
-**Fresh Windows checkout:** follow the [four setup steps](../README.md#run-it-on-windows). Use a permanent directory; the shortcut points to it. Setup requires internet access for the first dependency and Chromium downloads. It does not download model weights.
+**Fresh Windows checkout:** follow the [Windows quick start](../README.md#run-it-on-windows). Use a permanent directory; the shortcut points to it. Setup requires internet access for the first dependency and Chromium downloads. It does not download model weights.
 
 | Component | Default address | When needed |
 | --- | --- | --- |

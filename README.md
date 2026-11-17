@@ -1,67 +1,59 @@
 # Workhorse
 
-**A local AI assistant that can show its work.** Workhorse connects an Ollama model to a project folder, a terminal and a browser on your machine. Ask it to fix a website and you can follow the edits, see the running page and check whether the fix passed. For everyday tasks, the same interface can draft a customer reply, turn meeting notes into actions or research a question.
+**A local AI assistant for the work between meetings.** Give Workhorse a spreadsheet, a set of handover notes or a project folder. It can review the material, flag what needs your attention and produce a file you can use. Start a task, keep working in another app, and come back to the result and a record of how it got there.
 
-**Stack:** Python · SQLite · Ollama · Playwright · SearXNG · vanilla JavaScript
+[Run it on Windows](#run-it-on-windows) · [Try a sales review](#try-a-sales-review) · [Architecture](docs/architecture.md) · [Permissions](SECURITY.md)
 
-[Run it on Windows](#run-it-on-windows) · [Walk through a real test](#a-fix-you-can-reproduce) · [Architecture](docs/architecture.md) · [Permissions](SECURITY.md)
+[![Workhorse home screen with project and task navigation, shortcuts to draft or review work, a task composer, and a panel for files and changes.](docs/workhorse-home.png)](docs/workhorse-home.png)
 
-## A fix you can reproduce
+*The Workhorse home screen. Choose a working style on the left, give the assistant a task in the centre, and find its files and previews on the right.*
 
-![A click returns Broken; after editing app.js and reloading, the same click returns Hello.](docs/greeting-test.svg)
+## Try a sales review
 
-One [integration test](tests/test_development.py) builds a tiny page with a **Greet** button. The click handler initially displays `Broken`. Workhorse starts the site, clicks the button in Chromium and records a failed assertion. It edits the handler, reloads, clicks again and verifies `Hello`. The test checks the two assertion results in order, the changed source file, the detected local URL and the saved screenshot.
+1. Open a new task, choose **Agent**, and attach the included [sales.csv](examples/sales.csv) using **+ File**. This example needs a local model with tool support; it doesn't need internet access or access to a project folder.
+2. Ask: **“Review the three months in this CSV. Total revenue and costs, flag anything I should check before sharing, and save a short brief as sales-review.md.”**
+3. When Workhorse asks to create the file, expand **Review proposed contents**. Approve it, then download the brief from **Workspace files**.
 
-The test scripts the model’s decisions so it’s repeatable without a GPU. The file edits, dev server, browser and assertions are real. To run this example from a configured Windows checkout with Node.js on PATH:
+The sample contains **14,100** in revenue and **5,250** in recorded costs. It doesn't specify a currency. Those are useful checks on the review before passing it to a colleague.
 
-```powershell
-$env:WORKHORSE_BROWSER_TESTS = '1'
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_development.py -v
-```
+[![A completed sales review showing the CSV summary tool, the assistant’s findings and the downloadable sales-review.md beside the original sales.csv.](docs/workhorse-sales-review.png)](docs/workhorse-sales-review.png)
 
-## What you can do
+*Captured in the running app with the sample CSV. The demo scripted the model’s decisions; the CSV calculation, approval, file creation and download all ran through Workhorse. A live model may word the brief differently.*
 
-| Task | What happens |
+## What else can you hand over?
+
+Attach plain text, Markdown, CSV or supported code files. For a PDF, Word document or Excel workbook, export the relevant text or CSV first.
+
+| When you need to… | Give Workhorse this task |
 | --- | --- |
-| **Build or fix an app** | Approve a project directory. The agent can inspect source, propose terminal commands, edit files and retest. **Preview & files** shows captures as it uses the browser. |
-| **Research a question** | Enable internet access. The agent can search through your SearXNG instance, read pages and make follow-up searches. Results and pages are cached locally. |
-| **Prepare a handover** | Choose **Reception & admin**, paste your notes and ask for outstanding requests and missing details. Workhorse can draft the handover; it has no built-in booking or messaging integration. |
-| **Brief a team** | The **Management** profile helps turn notes into decisions, owners and next steps. Saved preferences carry across conversations. Profiles change how the model responds; workspace permissions still control what it can do. |
+| Review a proposal before a meeting | “Compare this draft with the attached requirements. Quote the passages that meet them, flag gaps, and save a review checklist.” |
+| Prepare the next shift | “Turn these reception notes into a handover. Separate confirmed arrangements from requests that still need a reply. Leave unknown details blank.” |
+| Brief a team | “Read these meeting notes and draft a one-page update. Separate decisions from open questions. Include owners and deadlines only where the notes name them.” |
+| Research a decision | “Look up the two options, compare them against these criteria and link the sources you used.” Enable internet access to use your own SearXNG instance. |
+| Review or fix software | “Inspect this project, reproduce the broken interaction, fix it and run the relevant tests.” Use **Development / Work** with an approved project folder. The activity panel records tool results; the preview shows the local page as the agent works. |
+
+**While you're doing other work:** the local server runs the task independently of the active browser tab. Keep the server running and return for approval prompts. Workhorse supports one active agent run at a time; separate conversations keep past tasks, files and results available. It can draft messages and handovers, but has no built-in email or calendar integration.
 
 ## Run it on Windows
 
-1. Install **Python 3.12+** and **Ollama**. Download a local model, then run `ollama list` to see its exact name. Choose a tool-capable model for development and a vision-capable model if you want screenshot review.
-2. For search and the standard desktop launcher, install **Docker Desktop** with Linux containers enabled. For local use without Docker, use the command below.
-3. Download or clone this repository to a permanent folder. Double-click **[Setup.cmd](Setup.cmd)** once. It installs the Python dependencies and Chromium, checks local startup, and builds the desktop shortcut.
-4. Open **Workhorse** from the shortcut or run **[Workhorse.cmd](Workhorse.cmd)**. In [the local interface](http://127.0.0.1:8765), open **Local model settings → Find installed models**. Set the coding, design and screenshot-review models to tags you actually have installed.
+1. Install **Python 3.12+** and **Ollama**. Download a local model with tool support; run `ollama list` to see its exact name. Install **Docker Desktop** with Linux containers enabled if you want web search or the standard desktop launcher.
+2. [Download the source ZIP](https://github.com/BenjaminLobl/workhorse/archive/refs/heads/main.zip) or clone this repository. Extract it to a permanent folder and double-click **[Setup.cmd](Setup.cmd)** once. Setup installs Python dependencies and Chromium, checks that Workhorse starts, and creates the desktop shortcut.
+3. Open the **Workhorse** shortcut or run **[Workhorse.cmd](Workhorse.cmd)**. In the [local interface](http://127.0.0.1:8765), open **Local model settings → Find installed models** and select an installed model. A separate vision model is optional for screenshot review.
 
-After setup, to start without web search or Docker:
+To start after setup without Docker or web search:
 
 ```powershell
 .\start-workhorse.cmd -WithoutSearch
 ```
 
-Model weights are separate downloads. Inference and history stay on your machine; enabling web research sends queries and page requests to external sites. See [setup and troubleshooting](docs/setup.md) for the ports, health check, launcher and older installations.
+Inference, conversations and files stay on your machine by default. If you enable research, search queries and page requests reach external sites. See [setup and troubleshooting](docs/setup.md) for local ports, startup checks and existing installations.
 
-## How it works
+## Under the hood
 
-Ollama proposes a structured tool call. Workhorse validates its arguments, checks the selected workspace and requests approval where needed. The tool returns an observation, which the model can use to choose its next action. SQLite stores thread history, tool results and file changes. A progress screenshot shows what the browser saw; it doesn’t count as a passed test.
+**Python · SQLite · Ollama · Playwright · SearXNG · vanilla JavaScript**
 
-```mermaid
-flowchart TD
-    UI["Local web interface"] --> R["Python agent runtime"]
-    R -->|task and observations| M["Ollama"]
-    M -->|reply or tool request| R
-    R --> G["Schema, workspace and approval checks"]
-    G --> T["Files, terminal, browser or research"]
-    T -->|observed result| R
-    R --> S["SQLite history and evidence"]
-```
+Ollama chooses a tool. The [runtime](workhorse/runtime.py) checks its arguments, the workspace permissions and any required approval before it acts. The result goes back to the model so it can correct an error or continue the task. SQLite keeps the conversation and activity record. File tools are limited to an approved folder; an approved native command runs with your operating-system permissions.
 
-Start with the [runtime](workhorse/runtime.py), the [tool registry](workhorse/tools.py) or the [browser adapter](workhorse/browser.py). The [architecture guide](docs/architecture.md) follows one task across those files.
-
-## Verification and scope
-
-The [test guide](docs/testing.md) separates deterministic model fixtures, real browser tests and live-model checks. [GitHub Actions](.github/workflows/tests.yml) defines Linux and Windows checks.
-
-Workhorse is designed for one trusted user on one computer. File tools operate in an approved workspace. An approved **native command runs with your Windows user permissions**; its working directory is not an operating-system sandbox. See the [security model](SECURITY.md) before enabling terminal access for an unfamiliar project.
+- [Architecture](docs/architecture.md) — follow a task from the browser through the agent loop and back.
+- [Tests and verification](docs/testing.md) — run the test suite, including a [browser scenario](tests/test_development.py) that reproduces a broken button, edits the code and verifies the fix.
+- [Security model](SECURITY.md) — understand file access, command approvals and the limits of a single-user local installation.
