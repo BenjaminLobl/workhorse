@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="198" viewBox="0 0 900 198" role="img" aria-labelledby="title desc">
+  <title id="title">One browser assertion, before and after an edit</title>
+  <desc id="desc">Illustration of the greeting test: a click returns Broken, the agent edits app.js, and the same click returns Hello.</desc>
+  <rect width="900" height="198" rx="14" fill="#172d25"/>
+  <g font-family="system-ui,sans-serif">
+    <text x="34" y="38" font-weight="700" font-size="15" fill="#eff5e7">Greet button</text>
+    <text x="866" y="38" font-family="monospace" font-size="13" text-anchor="end" fill="#b9c9bc">integration test / illustrated trace</text>
+    <path d="M34 55h832" stroke="#4d6357"/>
+    <g transform="translate(34 0)">
+      <text y="90" font-size="14" fill="#f9c5a6">01  ·  First click</text>
+      <text y="129" font-family="monospace" font-size="24" fill="#fff">Broken</text>
+      <text y="160" font-size="14" fill="#d5dfd4">Expected “Hello”</text>
+    </g>
+    <path d="M274 78v87 M576 78v87" stroke="#4d6357"/>
+    <g transform="translate(308 0)">
+      <text y="90" font-size="14" fill="#c9d7c8">02  ·  Source edit</text>
+      <text y="129" font-family="monospace" font-size="24" fill="#fff">app.js</text>
+      <text y="160" font-size="14" fill="#d5dfd4">Update handler and reload</text>
+    </g>
+    <g transform="translate(610 0)">
+      <text y="90" font-size="14" fill="#c8e9aa">03  ·  Same click</text>
+      <text y="129" font-family="monospace" font-size="24" fill="#fff">Hello</text>
+      <text y="160" font-size="14" fill="#d5dfd4">Assertion passes</text>
+    </g>
+  </g>
+</svg>

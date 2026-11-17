@@ -1,0 +1,123 @@
+{
+  "version": "0.4-workplace",
+  "patches": {
+    "workplace": {
+      "server.py": [
+        {
+          "old": "                \"/style.css\": \"style.css\",\n                \"/favicon.svg\": \"favicon.svg\",\n                \"/control-centre.js\": \"control-centre.js\",\n                \"/control-centre.css\": \"control-centre.css\",\n                \"/workhorse-appearance.css\": \"workhorse-appearance.css\",\n            }\n",
+          "new": "                \"/style.css\": \"style.css\",\n                \"/favicon.svg\": \"favicon.svg\",\n                \"/control-centre.js\": \"control-centre.js\",\n                \"/workplace.js\": \"workplace.js\",\n                \"/workplace.css\": \"workplace.css\",\n                \"/control-centre.css\": \"control-centre.css\",\n                \"/workhorse-appearance.css\": \"workhorse-appearance.css\",\n            }\n"
+        }
+      ],
+      "workhorse/runtime.py": [
+        {
+          "old": "from .browser import Browser\nfrom .tools import REGISTRY\nfrom .intelligence import Intelligence\nfrom .appearance_lab import AppearanceLab, SELECTORS  # WORKHORSE_COMPANION_V2\nfrom .control_centre import ControlCentre  # WORKHORSE_CONTROL_CENTRE_V1\nfrom .changes import capture, record_command_changes\n",
+          "new": "from .browser import Browser\nfrom .tools import REGISTRY\nfrom .intelligence import Intelligence\nfrom .workplace import Workplace, PROFILES  # WORKHORSE_WORKPLACE_V1\nfrom .appearance_lab import AppearanceLab, SELECTORS  # WORKHORSE_COMPANION_V2\nfrom .control_centre import ControlCentre  # WORKHORSE_CONTROL_CENTRE_V1\nfrom .changes import capture, record_command_changes\n"
+        },
+        {
+          "old": "\"\"\"\n\n\nclass Workbench(Workspace, Intelligence, ControlCentre):\n    def __init__(self, data, ollama=None):\n        super().__init__(data, ollama)\n        with self.connect() as c:\n",
+          "new": "\"\"\"\n\n\nclass Workbench(Workspace, Intelligence, ControlCentre, Workplace):\n    def __init__(self, data, ollama=None):\n        super().__init__(data, ollama)\n        with self.connect() as c:\n"
+        },
+        {
+          "old": "        self.browser = Browser(self.data, self.origins)\n        self.control_init()\n        self.intelligence_init()\n        self.appearance_lab = AppearanceLab(self, Path(__file__).resolve().parents[1])\n\n    def settings(self):\n",
+          "new": "        self.browser = Browser(self.data, self.origins)\n        self.control_init()\n        self.intelligence_init()\n        self.workplace_init()\n        self.appearance_lab = AppearanceLab(self, Path(__file__).resolve().parents[1])\n\n    def settings(self):\n"
+        },
+        {
+          "old": "            \"context\": 16384,\n            \"output\": 4096,\n            \"iterations\": 24,\n        }\n        d.update(\n            {\n",
+          "new": "            \"context\": 16384,\n            \"output\": 4096,\n            \"iterations\": 24,\n            \"work_profile\": \"general\",\n            \"progress_preview\": True,\n        }\n        d.update(\n            {\n"
+        },
+        {
+          "old": "            \"context\",\n            \"output\",\n            \"iterations\",\n        ):\n            if key not in b:\n                continue\n",
+          "new": "            \"context\",\n            \"output\",\n            \"iterations\",\n            \"work_profile\",\n            \"progress_preview\",\n        ):\n            if key not in b:\n                continue\n"
+        },
+        {
+          "old": "            if key in (\"model\", \"coding_model\", \"design_model\", \"vision_model\"):\n                if not isinstance(v, str) or len(v) > 120 or \"cloud\" in v.lower():\n                    raise ValueError(\"Choose a local model name.\")\n            elif (\n                type(v) is not int\n                or not {\n",
+          "new": "            if key in (\"model\", \"coding_model\", \"design_model\", \"vision_model\"):\n                if not isinstance(v, str) or len(v) > 120 or \"cloud\" in v.lower():\n                    raise ValueError(\"Choose a local model name.\")\n            elif key == \"work_profile\":\n                if not isinstance(v, str) or v not in PROFILES:\n                    raise ValueError(\"Choose a supported workplace profile.\")\n            elif key == \"progress_preview\":\n                if type(v) is not bool:\n                    raise ValueError(\"Progress preview must be true or false.\")\n            elif (\n                type(v) is not int\n                or not {\n"
+        },
+        {
+          "old": "            for w in self.rows(\"SELECT id FROM workspaces ORDER BY created DESC\")\n        ]\n        d[\"config\"] = self.settings()\n        if thread:\n            binding = self.rows(\n                \"SELECT workspace FROM thread_workspaces WHERE thread=?\", (thread,)\n",
+          "new": "            for w in self.rows(\"SELECT id FROM workspaces ORDER BY created DESC\")\n        ]\n        d[\"config\"] = self.settings()\n        d[\"progress_preview\"] = self.progress_preview(thread) if thread else None\n        if thread:\n            binding = self.rows(\n                \"SELECT workspace FROM thread_workspaces WHERE thread=?\", (thread,)\n"
+        },
+        {
+          "old": "                        out.get(\"viewport\", {}).get(\"height\", 0),\n                    ),\n                )\n            if name == \"browser_assert\" and out.get(\"passed\"):\n                r.verified = True\n            return out\n",
+          "new": "                        out.get(\"viewport\", {}).get(\"height\", 0),\n                    ),\n                )\n            out = self.capture_progress(r, name, a, out)\n            if name == \"browser_assert\" and out.get(\"passed\"):\n                r.verified = True\n            return out\n"
+        },
+        {
+          "old": "        messages[0][\"content\"] = (\n            PROMPT\n            + (DESIGN_FIRST_PROMPT if design_first else \"\")\n            + self.preference_prompt(messages[0].get(\"workspace\"))\n            + \"\\nFor model identity, permissions, services or recent failures, call control_info; never infer those facts from training or configuration alone. Save memory only when the user explicitly requests lasting behaviour; ask for action approval. Workhorse self-editing is restricted to reviewed CSS proposals; backend/JavaScript changes are unavailable.\"\n            + \"\\nCurrent task: \"\n",
+          "new": "        messages[0][\"content\"] = (\n            PROMPT\n            + (DESIGN_FIRST_PROMPT if design_first else \"\")\n            + self.workplace_prompt()\n            + self.preference_prompt(messages[0].get(\"workspace\"))\n            + \"\\nFor model identity, permissions, services or recent failures, call control_info; never infer those facts from training or configuration alone. Save memory only when the user explicitly requests lasting behaviour; ask for action approval. Workhorse self-editing is restricted to reviewed CSS proposals; backend/JavaScript changes are unavailable.\"\n            + \"\\nCurrent task: \"\n"
+        }
+      ],
+      "web/app.js": [
+        {
+          "old": "async function api(path,body){const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;}\nfunction busy(on){state.busy=on;['send','prompt','attach','new','project','agent','add-project','mode','online','design-first','workspace-select','add-workspace','workspace-permissions'].forEach(id=>$(id).disabled=on);document.querySelectorAll('#threads button').forEach(b=>b.disabled=on);$('send').hidden=on;$('stop').hidden=!on;}\nfunction showPrompt(p){if(state.busy)return;$('prompt').value=p;$('prompt').focus();}\nfunction render(data){state.projects=data.projects;state.workspaces=data.workspaces||[];if(data.workspace_id)state.workspace=data.workspace_id;\n$('workspace-select').replaceChildren(new Option('No filesystem workspace',''));state.workspaces.forEach(w=>$('workspace-select').append(new Option(w.name,w.id)));$('workspace-select').value=state.workspace;\nconst workspace=state.workspaces.find(w=>w.id===state.workspace);$('workspace-path').textContent=workspace?workspace.path+' \u00b7 '+(workspace.permissions.edit?'Edits allowed':'Read only'):'No filesystem access';\n$('change-list').replaceChildren();(data.changes||[]).forEach(c=>{const d=el('details');d.append(el('summary',c.path),el('p',c.reason),el('pre',c.diff));$('change-list').append(d);});\n",
+          "new": "async function api(path,body){const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;}\nfunction busy(on){state.busy=on;['send','prompt','attach','new','project','agent','add-project','mode','online','design-first','workspace-select','add-workspace','workspace-permissions'].forEach(id=>$(id).disabled=on);document.querySelectorAll('#threads button').forEach(b=>b.disabled=on);$('send').hidden=on;$('stop').hidden=!on;}\nfunction showPrompt(p){if(state.busy)return;$('prompt').value=p;$('prompt').focus();}\nfunction render(data){window.dispatchEvent(new CustomEvent(\"workhorse:snapshot\",{detail:data}));state.projects=data.projects;state.workspaces=data.workspaces||[];if(data.workspace_id)state.workspace=data.workspace_id;\n$('workspace-select').replaceChildren(new Option('No filesystem workspace',''));state.workspaces.forEach(w=>$('workspace-select').append(new Option(w.name,w.id)));$('workspace-select').value=state.workspace;\nconst workspace=state.workspaces.find(w=>w.id===state.workspace);$('workspace-path').textContent=workspace?workspace.path+' \u00b7 '+(workspace.permissions.edit?'Edits allowed':'Read only'):'No filesystem access';\n$('change-list').replaceChildren();(data.changes||[]).forEach(c=>{const d=el('details');d.append(el('summary',c.path),el('p',c.reason),el('pre',c.diff));$('change-list').append(d);});\n"
+        }
+      ],
+      "start-workhorse.cmd": [
+        {
+          "old": "@echo off\nsetlocal\ncd /d \"%~dp0\"\npowershell.exe -NoLogo -NoProfile -File \"%~dp0Start-Workhorse.ps1\" %*\nif errorlevel 1 (\n echo.\n echo Startup failed. Read the error above. If Windows blocks a downloaded script, use Unblock-File on Start-Workhorse.ps1 after reviewing it.\n",
+          "new": "@echo off\nsetlocal\ncd /d \"%~dp0\"\npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \"%~dp0Start-Workhorse.ps1\" %*\nif errorlevel 1 (\n echo.\n echo Startup failed. Read the error above. If Windows blocks a downloaded script, use Unblock-File on Start-Workhorse.ps1 after reviewing it.\n"
+        }
+      ],
+      "scripts/verify_install.py": [
+        {
+          "old": "            \"/api/appearance-lab\",\n            \"/control-centre.js\",\n            \"/control-centre.css\",\n            \"/workhorse-appearance.css\",\n        ]:\n            with opener.open(server.origin + path, timeout=5) as response:\n",
+          "new": "            \"/api/appearance-lab\",\n            \"/control-centre.js\",\n            \"/control-centre.css\",\n            \"/workplace.js\",\n            \"/workplace.css\",\n            \"/workhorse-appearance.css\",\n        ]:\n            with opener.open(server.origin + path, timeout=5) as response:\n"
+        }
+      ]
+    }
+  },
+  "assets": {
+    "workhorse/workplace.py": {
+      "sha256": "29f6556adefb569f893bb51c18ff4a0e58d13f592afcc2b0d6b901af92100e06",
+      "accepted": []
+    },
+    "web/workplace.js": {
+      "sha256": "355a78c0b83a8637de019eb822369b4af7542bc0ecaa1aae0d830b8a25cf60ac",
+      "accepted": []
+    },
+    "web/workplace.css": {
+      "sha256": "90ac245a845f009755fb522504855514ef6eadf67905eb88c62bcb3a02a1c2c2",
+      "accepted": []
+    },
+    "tests/test_workplace.py": {
+      "sha256": "7ce08a4fcf461b673de232ffcf05eca549f686870a483c91b1ddaa0cac96a05a",
+      "accepted": []
+    },
+    "Workhorse.cmd": {
+      "sha256": "4aeafa37490b4b263bb1736a1401fec46e54a635f9e73d354e65950255237d61",
+      "accepted": []
+    },
+    "Setup.cmd": {
+      "sha256": "dc1b023ae9f65e23411e9197ecb7a9b61a19f8fe9b3e4e6185d6f856cf27525f",
+      "accepted": []
+    },
+    "scripts/first-run.ps1": {
+      "sha256": "438bc3a4466b383ba97d068563dd03c759b12070d52265537022d08a7482e573",
+      "accepted": []
+    },
+    "WORKPLACE_README.md": {
+      "sha256": "e0c14e2e3509cebee98d89067e28a957284dd141cf7aa5ed0575bb6313b7c71f",
+      "accepted": []
+    },
+    "launcher/Install-Desktop.ps1": {
+      "sha256": "6120f13ef32813bbf3591adb51b4d6862d2f6c35e0087bdf9b5afafbf5214099",
+      "accepted": []
+    },
+    "launcher/Workhorse.cs": {
+      "sha256": "43535ec7a2d14bed682f86d1a406aeaeb0e3212422468eb5a27b0c77e0f98654",
+      "accepted": []
+    },
+    "launcher/README.txt": {
+      "sha256": "1f5ba13456f10ed82f75a78b23c572607ad518ff81b09c2c694765f7ca44181a",
+      "accepted": []
+    },
+    "launcher/Start-Desktop.ps1": {
+      "sha256": "72989fdd4209ed4ad544383cf225b887003d27bbac44c1a7c2de0d5449e88f5a",
+      "accepted": []
+    },
+    "launcher/Install-Desktop.cmd": {
+      "sha256": "a1d5914be9e7209d6978fb6db280b5c7c6f731135fee514ae611323f56fa799b",
+      "accepted": []
+    }
+  }
+}

@@ -1,0 +1,652 @@
+'use strict';
+const $ = (id) => document.getElementById(id);
+const state = {
+  thread: '',
+  project: '',
+  workspace: '',
+  workspaces: [],
+  editingWorkspace: '',
+  model: localStorage.getItem('workhorse.local.model') || '',
+  run: null,
+  files: [],
+  pending: [],
+  projects: [],
+  busy: false,
+  polling: false,
+};
+function el(tag, text, className) {
+  const element = document.createElement(tag);
+  if (text !== undefined) element.textContent = text;
+  if (className) element.className = className;
+  return element;
+}
+function error(message = '') {
+  $('error').textContent = message;
+  $('error').hidden = !message;
+}
+async function api(path, body) {
+  const r = await fetch('/api/' + path, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Request failed');
+  return d;
+}
+function busy(on) {
+  state.busy = on;
+  [
+    'send',
+    'prompt',
+    'attach',
+    'new',
+    'project',
+    'agent',
+    'add-project',
+    'mode',
+    'online',
+    'design-first',
+    'workspace-select',
+    'add-workspace',
+    'workspace-permissions',
+  ].forEach((id) => ($(id).disabled = on));
+  document.querySelectorAll('#threads button').forEach((b) => (b.disabled = on));
+  $('send').hidden = on;
+  $('stop').hidden = !on;
+}
+function showPrompt(p) {
+  if (state.busy) return;
+  $('prompt').value = p;
+  $('prompt').focus();
+}
+function render(data) {
+  window.dispatchEvent(new CustomEvent('workhorse:snapshot', { detail: data }));
+  renderWorkspace(data);
+  renderThreadList(data);
+  if (!state.thread) return;
+
+  // Keep a reader's place when they scroll back during an active run.
+  const chat = $('chat');
+  const followLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120;
+  renderMessages(data.messages || []);
+  renderFiles(data.files || []);
+  if (followLatest) chat.scrollTop = chat.scrollHeight;
+
+  if (data.run && !state.run) {
+    state.run = data.run;
+    busy(true);
+    poll();
+  }
+}
+
+function renderWorkspace(data) {
+  state.projects = data.projects;
+  state.workspaces = data.workspaces || [];
+  if (data.workspace_id) state.workspace = data.workspace_id;
+  $('workspace-select').replaceChildren(new Option('No filesystem workspace', ''));
+  state.workspaces.forEach((w) => $('workspace-select').append(new Option(w.name, w.id)));
+  $('workspace-select').value = state.workspace;
+  const workspace = state.workspaces.find((w) => w.id === state.workspace);
+  $('workspace-path').textContent = workspace
+    ? workspace.path + ' · ' + (workspace.permissions.edit ? 'Edits allowed' : 'Read only')
+    : 'No filesystem access';
+  $('change-list').replaceChildren();
+  (data.changes || []).forEach((c) => {
+    const d = el('details');
+    d.append(el('summary', c.path), el('p', c.reason), el('pre', c.diff));
+    $('change-list').append(d);
+  });
+  if (data.config) {
+    state.config = data.config;
+    if (!state.model) {
+      state.model = data.config.model;
+      $('model-settings').textContent = state.model;
+    }
+  }
+}
+
+function renderThreadList(data) {
+  const selected = state.project;
+  $('project').replaceChildren(new Option('General workspace', ''));
+  data.projects.forEach((p) => $('project').append(new Option(p.name, p.id)));
+  $('project').value = selected;
+  $('threads').replaceChildren();
+  data.threads.forEach((t) => {
+    const b = el('button', t.title, t.id === state.thread ? 'selected' : '');
+    b.disabled = state.busy;
+    b.onclick = () => openThread(t);
+    const row = el('div', undefined, 'thread-row');
+    row.append(b);
+    const del = el('button', '×', 'delete-thread');
+    del.title = 'Delete conversation';
+    del.disabled = state.busy;
+    del.onclick = async () => {
+      if (
+        confirm(
+          'Delete this conversation and its imported files? Workspace source files and audit/change history are kept.',
+        )
+      ) {
+        try {
+          await api('delete-thread', { thread: t.id });
+          if (t.id === state.thread) newTask();
+          else await refresh();
+        } catch (e) {
+          error(e.message);
+        }
+      }
+    };
+    row.append(del);
+    $('threads').append(row);
+  });
+  $('project-label').textContent = data.projects.find((p) => p.id === selected)?.name || '';
+}
+
+function renderMessages(messages) {
+  $('welcome').hidden = true;
+  const version = state.thread + JSON.stringify(messages.map((m) => m.id));
+  if (state.messageVersion !== version) {
+    state.messageVersion = version;
+    $('messages').replaceChildren();
+    for (const m of messages) {
+      if (m.role === 'activity') {
+        let d;
+        try {
+          d = JSON.parse(m.content);
+        } catch {
+          continue;
+        }
+        $('messages').append(toolEvent(d));
+      } else {
+        const row = el('article', undefined, 'message ' + m.role);
+        row.append(el('b', m.role === 'user' ? 'You' : 'Workhorse'));
+        const content = el('div');
+        rich(content, m.content);
+        row.append(content);
+        $('messages').append(row);
+      }
+    }
+  }
+}
+
+function renderFiles(files) {
+  state.files = files;
+  $('files').replaceChildren();
+  $('file-count').textContent = state.files.length;
+  for (const f of state.files) {
+    const a = el('a', undefined, 'file');
+    a.href =
+      '/api/file?thread=' +
+      encodeURIComponent(state.thread) +
+      '&id=' +
+      encodeURIComponent(f.id);
+    a.download = f.name;
+    a.append(el('b', f.name), el('small', (f.size / 1024).toFixed(1) + ' KB · Download'));
+    $('files').append(a);
+  }
+  if (!state.files.length)
+    $('files').append(el('p', 'Import a file to give your agent context.', 'empty-files'));
+  $('audit').hidden = false;
+  $('audit').href = '/api/audit?thread=' + encodeURIComponent(state.thread);
+  $('audit').download = 'workhorse-audit.json';
+}
+
+async function refresh() {
+  render(
+    await api(
+      'workspace' + (state.thread ? '?thread=' + encodeURIComponent(state.thread) : ''),
+    ),
+  );
+}
+async function openThread(t) {
+  if (state.busy) return;
+  state.thread = t.id;
+  state.messageVersion = '';
+  state.project = t.project || '';
+  state.workspace = '';
+  state.pending = [];
+  $('attachments').replaceChildren();
+  $('title').textContent = t.title;
+  error();
+  await refresh();
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
+function newTask() {
+  if (state.busy) return;
+  state.thread = '';
+  state.messageVersion = '';
+  state.run = null;
+  state.files = [];
+  state.pending = [];
+  $('title').textContent = 'New task';
+  $('messages').replaceChildren();
+  $('files').replaceChildren();
+  $('attachments').replaceChildren();
+  $('welcome').hidden = false;
+  $('approval').hidden = true;
+  $('audit').hidden = true;
+  $('activity').hidden = true;
+  $('file-count').textContent = '0';
+  error();
+  refresh().catch((e) => error(e.message));
+  $('prompt').value = '';
+  $('prompt').focus();
+}
+function drawPending() {
+  $('attachments').replaceChildren();
+  state.pending.forEach((f, i) => {
+    const b = el('button', f.name + ' ×');
+    b.onclick = () => {
+      state.pending.splice(i, 1);
+      drawPending();
+    };
+    $('attachments').append(b);
+  });
+}
+async function ensureThread(title) {
+  if (!state.thread) {
+    const t = await api('thread', {
+      title: title.slice(0, 100),
+      project: state.project,
+      workspace: state.workspace,
+    });
+    state.thread = t.id;
+    $('title').textContent = title.slice(0, 100);
+  }
+}
+async function submit(event) {
+  event?.preventDefault();
+  if (state.busy) return;
+  const prompt = $('prompt').value.trim();
+  if (!prompt) return;
+  if (!state.model) {
+    $('settings-dialog').showModal();
+    return;
+  }
+  error();
+  busy(true);
+  try {
+    await ensureThread(prompt);
+    while (state.pending.length) {
+      await api('upload', { thread: state.thread, ...state.pending[0] });
+      state.pending.shift();
+      drawPending();
+    }
+    state.run = await api('start', {
+      thread: state.thread,
+      prompt,
+      model: state.model,
+      agent: true,
+      mode: $('mode').value,
+      online: $('online').checked,
+      design_first: $('design-first').checked && $('mode').value === 'work',
+    });
+    $('prompt').value = '';
+    await refresh();
+    poll();
+  } catch (e) {
+    busy(false);
+    error(e.message);
+  }
+}
+async function poll() {
+  if (state.polling) return;
+  state.polling = true;
+  try {
+    while (state.run) {
+      let r;
+      try {
+        r = await api('run?id=' + encodeURIComponent(state.run.id));
+      } catch (e) {
+        error('Cannot check the run: ' + e.message);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        continue;
+      }
+      state.run = r;
+      const active = ['running', 'approval'].includes(r.status);
+      $('activity').hidden = false;
+      $('activity').textContent = r.detail;
+      $('approval').hidden = !r.pending;
+      if (r.pending) {
+        $('approval-name').textContent = r.pending.name;
+        $('approval-content').textContent = r.pending.content;
+        $('approve').disabled = false;
+        $('reject').disabled = false;
+      }
+      await refresh();
+      if (!active) {
+        busy(false);
+        state.run = null;
+        $('approval').hidden = true;
+        if (r.status === 'error') error(r.detail);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    }
+  } catch (e) {
+    error(e.message);
+    busy(false);
+  } finally {
+    state.polling = false;
+  }
+}
+async function decide(approve) {
+  if (!state.run?.pending) return;
+  $('approve').disabled = true;
+  $('reject').disabled = true;
+  try {
+    await api('decision', { run: state.run.id, approval: state.run.pending.id, approve });
+    $('approval').hidden = true;
+  } catch (e) {
+    error(e.message);
+  }
+}
+async function findModels() {
+  const button = $('refresh-models');
+  button.disabled = true;
+  $('model-status').textContent = 'Looking for local models…';
+  try {
+    const d = await api('models');
+    $('models').replaceChildren();
+    d.models.forEach((m) => $('models').append(new Option(m, m)));
+    if (d.models.includes(state.model)) $('models').value = state.model;
+    else if (d.models.includes('qwen3.8:27b')) $('models').value = 'qwen3.8:27b';
+    else if (d.models.length) $('models').value = d.models[0];
+    $('model-status').textContent = d.models.length
+      ? 'Choose a model and test its response.'
+      : 'No local models installed. Follow the setup instructions below.';
+  } catch (e) {
+    $('model-status').textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+async function testModel() {
+  const model = $('models').value;
+  if (!model) return;
+  ['test-model', 'refresh-models', 'models', 'use-model'].forEach(
+    (id) => ($(id).disabled = true),
+  );
+  $('model-status').textContent = 'Loading the model. The first response can take a while…';
+  try {
+    const d = await api('test', { model });
+    $('model-status').textContent =
+      d.answer +
+      ' · Tools: ' +
+      (d.capabilities.includes('tools') ? 'supported' : 'not advertised');
+  } catch (e) {
+    $('model-status').textContent = e.message;
+  } finally {
+    ['test-model', 'refresh-models', 'models', 'use-model'].forEach(
+      (id) => ($(id).disabled = false),
+    );
+  }
+}
+function settings() {
+  if (state.busy) {
+    error('Finish or stop the current run before changing the model.');
+    return;
+  }
+  $('settings-dialog').showModal();
+  $('coding-model').value = state.config?.coding_model || 'qwen3.8:27b';
+  $('design-model').value = state.config?.design_model || 'qwen3.8:27b';
+  $('vision-model').value = state.config?.vision_model || 'gemma4:12b';
+  $('context-size').value = state.config?.context || 16384;
+  $('output-size').value = state.config?.output || 4096;
+  $('iterations').value = state.config?.iterations || 24;
+  findModels();
+}
+$('settings').onclick = settings;
+$('model-settings').onclick = settings;
+$('refresh-models').onclick = findModels;
+$('test-model').onclick = testModel;
+$('use-model').onclick = async () => {
+  const m = $('models').value;
+  if (!m) return;
+  try {
+    state.config = await api('config', {
+      model: m,
+      coding_model: $('coding-model').value.trim(),
+      design_model: $('design-model').value.trim(),
+      vision_model: $('vision-model').value.trim(),
+      context: Number($('context-size').value),
+      output: Number($('output-size').value),
+      iterations: Number($('iterations').value),
+    });
+  } catch (e) {
+    $('model-status').textContent = e.message;
+    return;
+  }
+  state.model = m;
+  localStorage.setItem('workhorse.local.model', m);
+  $('model-settings').textContent = m;
+  $('settings-dialog').close();
+};
+$('new').onclick = newTask;
+$('project').onchange = () => {
+  state.project = $('project').value;
+  newTask();
+};
+$('add-project').onclick = () => $('project-dialog').showModal();
+$('project-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const p = await api('project', {
+      name: $('project-name').value,
+      instructions: $('instructions').value,
+    });
+    state.project = p.id;
+    $('project-dialog').close();
+    $('project-form').reset();
+    newTask();
+  } catch (e) {
+    error(e.message);
+  }
+};
+$('composer').onsubmit = submit;
+$('prompt').onkeydown = (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    submit();
+  }
+};
+$('stop').onclick = async () => {
+  if (state.run) {
+    try {
+      await api('stop', { run: state.run.id });
+    } catch (e) {
+      error(e.message);
+    }
+  }
+};
+$('approve').onclick = () => decide(true);
+$('reject').onclick = () => decide(false);
+$('attach').onclick = () => $('upload').click();
+$('upload').onchange = async (e) => {
+  try {
+    for (const f of e.target.files) {
+      if (f.size > 200000) throw new Error('Choose text files smaller than 200 KB.');
+      if (!/\.(txt|md|csv|json|js|ts|tsx|jsx|py|html|css|sql|yaml|yml|xml|log)$/i.test(f.name))
+        throw new Error('Choose a text, CSV, Markdown or code file.');
+      state.pending.push({ name: f.name, content: await f.text() });
+    }
+    drawPending();
+  } catch (e) {
+    error(e.message);
+  }
+  e.target.value = '';
+};
+document
+  .querySelectorAll('[data-close]')
+  .forEach((b) => (b.onclick = () => $(b.dataset.close).close()));
+document
+  .querySelectorAll('[data-prompt]')
+  .forEach((b) => (b.onclick = () => showPrompt(b.dataset.prompt)));
+if (state.model) $('model-settings').textContent = state.model;
+refresh().catch((e) => error(e.message));
+
+function rich(container, text) {
+  const re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let pos = 0;
+  for (const m of text.matchAll(re)) {
+    container.append(document.createTextNode(text.slice(pos, m.index)));
+    const a = el('a', m[1]);
+    a.href = m[2];
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    container.append(a);
+    pos = m.index + m[0].length;
+  }
+  container.append(document.createTextNode(text.slice(pos)));
+}
+function toolEvent(d) {
+  const row = el('details', undefined, 'tool-event ' + (d.status === 'error' ? 'failed' : ''));
+  const r = d.result || {};
+  let title = d.tool.replaceAll('_', ' ');
+  if (d.args?.path) title += ' · ' + d.args.path;
+  if (d.args?.command) title += ' · ' + d.args.command.slice(0, 100);
+  row.append(
+    el(
+      'summary',
+      (d.status === 'error' ? '⚠ ' : '✓ ') +
+        title +
+        (d.duration ? ' · ' + d.duration + 's' : ''),
+    ),
+  );
+  if (r.error) row.append(el('p', r.error));
+  if (r.sources) {
+    r.sources.forEach((s) => {
+      if (!/^https?:\/\//.test(s.url)) return;
+      const a = el('a', s.title || s.url);
+      a.href = s.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      row.append(a);
+    });
+    row.append(
+      el(
+        'p',
+        (r.cached ? 'Cached' : 'Fetched') +
+          (r.fetched_at ? ' · ' + new Date(r.fetched_at * 1000).toLocaleString() : ''),
+      ),
+    );
+  }
+  if (r.results) r.results.forEach((s) => row.append(el('p', s.excerpt || '')));
+  if (r.screenshot) {
+    const image = el('img');
+    image.src = '/api/screenshot?id=' + encodeURIComponent(r.screenshot);
+    image.alt = 'Browser screenshot';
+    image.loading = 'lazy';
+    row.append(image);
+  }
+  for (const k of ['stdout', 'stderr', 'diff', 'content', 'findings'])
+    if (r[k]) {
+      row.append(el('b', k), el('pre', r[k]));
+    }
+  if (r.steps) row.append(el('pre', r.steps.join('\n')));
+  if (r.exit_code !== undefined)
+    row.append(el('p', 'Exit: ' + r.exit_code + ' · ' + (r.running ? 'Running' : 'Finished')));
+  if (r.urls)
+    r.urls.forEach((url) => {
+      const a = el('a', url);
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      row.append(a);
+    });
+  if (r.passed !== undefined)
+    row.append(el('p', r.passed ? 'Assertion passed' : 'Assertion FAILED'));
+  if (d.tool === 'create_file' && r.id) {
+    const a = el('a', 'Download ' + r.name);
+    a.href =
+      '/api/file?thread=' +
+      encodeURIComponent(state.thread) +
+      '&id=' +
+      encodeURIComponent(r.id);
+    a.download = r.name;
+    row.append(a);
+  }
+  const debug = el('details');
+  debug.append(
+    el('summary', 'Debug tool data'),
+    el('pre', JSON.stringify({ args: d.args, result: r }, null, 2)),
+  );
+  row.append(debug);
+  return row;
+}
+$('workspace-select').onchange = () => {
+  state.workspace = $('workspace-select').value;
+  newTask();
+};
+function workspaceDialog(edit) {
+  state.editingWorkspace = edit?.id || '';
+  $('workspace-form').reset();
+  $('workspace-name').value = edit?.name || '';
+  $('workspace-directory').value = edit?.path || '';
+  $('workspace-name').disabled = !!edit;
+  $('workspace-directory').disabled = !!edit;
+  for (const key of ['edit', 'terminal', 'browser', 'internet'])
+    $('perm-' + key).checked = edit
+      ? !!edit.permissions[key]
+      : ['edit', 'browser'].includes(key);
+  $('perm-trust').checked = !!edit?.permissions.trust_commands;
+  $('workspace-origins').value = (edit?.permissions.origins || []).join('\n');
+  $('workspace-dialog').showModal();
+}
+$('add-workspace').onclick = () => workspaceDialog();
+$('workspace-permissions').onclick = () => {
+  const w = state.workspaces.find((w) => w.id === state.workspace);
+  if (w) workspaceDialog(w);
+  else error('Select a workspace first.');
+};
+$('workspace-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const permissions = {};
+  for (const key of ['edit', 'terminal', 'browser', 'internet'])
+    permissions[key] = $('perm-' + key).checked;
+  permissions.trust_commands = $('perm-trust').checked;
+  try {
+    if (state.editingWorkspace)
+      await api('workspace-permissions', {
+        id: state.editingWorkspace,
+        ...permissions,
+        origins: $('workspace-origins')
+          .value.split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean),
+      });
+    else {
+      const w = await api('add-workspace', {
+        name: $('workspace-name').value,
+        path: $('workspace-directory').value,
+        permissions,
+      });
+      state.workspace = w.id;
+      if ($('workspace-origins').value.trim())
+        await api('workspace-permissions', {
+          id: w.id,
+          origins: $('workspace-origins')
+            .value.split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean),
+        });
+    }
+    $('workspace-dialog').close();
+    newTask();
+  } catch (e) {
+    error(e.message);
+  }
+};
+function updateDesignFirst() {
+  const isWork = $('mode').value === 'work';
+  $('design-first-wrap').hidden = !isWork;
+  if ($('mode').value === 'search') $('online').checked = true;
+}
+$('mode').onchange = updateDesignFirst;
+updateDesignFirst();
+
+$('panel-toggle').onclick = () => {
+  const panel = document.querySelector('.file-panel');
+  const shown = panel.classList.toggle('shown');
+  $('panel-toggle').setAttribute('aria-expanded', String(shown));
+};

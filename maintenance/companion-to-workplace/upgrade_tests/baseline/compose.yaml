@@ -1,0 +1,31 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./services/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+    environment:
+      SEARXNG_BASE_URL: http://127.0.0.1:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Run python scripts/init_services.py first}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    profiles: [crawl]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11235:11235"
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  searxng-cache:

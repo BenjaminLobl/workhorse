@@ -1,0 +1,9 @@
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+maintenance/companion-to-workplace/** -text -whitespace linguist-vendored
